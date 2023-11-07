@@ -31,7 +31,7 @@ class filemanager:
         #after getting stuff, open a file and start writing
         valid_file = True
         with open(os.path.join(self.working_dir, local_filename), 'wb') as f:
-            for i in tqdm(range(0, osize, chunk_size)):
+            for i in tqdm(range(0, osize, chunk_size), desc="DOWNLOADING!"):
                 endat = min(i+chunk_size-1, osize-1)
                 rangestring = str(i) + "-" + str(endat)
                 for j in range(attempts):
