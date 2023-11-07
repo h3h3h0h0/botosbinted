@@ -50,7 +50,9 @@ class filemanager:
                 f.write(chunk.content)
         #if parts could not be reached and file is incomplete, delete the file and return empty string
         if not valid_file:
+            print("File at", local_filename, "could not be fully downloaded, cleaning up.")
             if os.path.exists(local_filename):
                 os.remove(local_filename)
             return ""
+        print("SUCCESS!")
         return local_filename #if success, return filename (otherwise would be empty to signal caller something went wrong)
