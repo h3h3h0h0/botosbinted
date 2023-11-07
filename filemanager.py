@@ -24,7 +24,7 @@ class filemanager:
             object_name=object_name
         )
         if metadata.status != 200:
-            print("ERROR! Status: ", metadata.status)
+            print("ERROR! Status:", metadata.status)
             return "" #could not get the requested object
         osize = int(metadata.headers["content-length"])
         #after getting stuff, open a file and start writing
@@ -39,7 +39,7 @@ class filemanager:
                     range=rangestring
                 )
                 if chunk.status != 200:
-                    print("ERROR! Status: ", chunk.status)
+                    print("ERROR! Status:", chunk.status)
                     return ""  # could not get the requested object
                 f.write(chunk.content)
         return local_filename #if success, return filename (otherwise
