@@ -2,6 +2,7 @@ from oci.config import from_file
 from oci.signer import Signer
 from oci.object_storage import ObjectStorageClient
 from tqdm import tqdm
+import os
 
 class filemanager:
     def __init__(self, url, working_dir="", config_file=""):
@@ -13,7 +14,7 @@ class filemanager:
             self.config = from_file() #default location (~/.oci/config)
         self.storage_client = ObjectStorageClient(self.config)
 
-    def getFile(self, namespace, bucket_name, object_name, filename="", chunk_size=8192) -> str:
+    def getFile(self, namespace, bucket_name, object_name, filename="", chunk_size=8192, attempts=10) -> str:
         local_filename = object_name
         if len(filename) != 0:
             local_filename = filename
@@ -25,21 +26,31 @@ class filemanager:
         )
         if metadata.status != 200:
             print("ERROR! Status:", metadata.status)
-            return "" #could not get the requested object
+            return "" #file isn't created yet so it's fine
         osize = int(metadata.headers["content-length"])
         #after getting stuff, open a file and start writing
-        with open(local_filename, 'wb') as f:
+        valid_file = True
+        with open(os.path.join(self.working_dir, local_filename), 'wb') as f:
             for i in tqdm(range(0, osize, chunk_size)):
                 endat = min(i+chunk_size-1, osize-1)
                 rangestring = str(i) + "-" + str(endat)
-                chunk = self.storage_client.get_object(
-                    namespace_name=namespace,
-                    bucket_name=bucket_name,
-                    object_name=object_name,
-                    range=rangestring
-                )
-                if chunk.status != 200:
+                for j in range(attempts):
+                    chunk = self.storage_client.get_object(
+                        namespace_name=namespace,
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        range=rangestring
+                    )
+                    if chunk.status == 200:
+                        break
+                if chunk.status != 200: #tried already, something is broken so exit
+                    valid_file = False
                     print("ERROR! Status:", chunk.status)
-                    return ""  # could not get the requested object
+                    break
                 f.write(chunk.content)
-        return local_filename #if success, return filename (otherwise
+        #if parts could not be reached and file is incomplete, delete the file and return empty string
+        if not valid_file:
+            if os.path.exists(local_filename):
+                os.remove(local_filename)
+            return ""
+        return local_filename #if success, return filename (otherwise would be empty to signal caller something went wrong)
