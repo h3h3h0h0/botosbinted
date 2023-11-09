@@ -1,8 +1,12 @@
+import sys
+from halo import Halo
 from oci.config import from_file
 from oci.signer import Signer
 from oci.object_storage import ObjectStorageClient
 from tqdm import tqdm
 import os
+
+print_location = sys.stdout
 
 class filemanager:
     def __init__(self, url, working_dir="", config_file=""):
@@ -18,6 +22,7 @@ class filemanager:
         local_filename = object_name
         if len(filename) != 0:
             local_filename = filename
+        print("Attempting to download file named", object_name, "to current folder as", filename, file=print_location)
         #retrieve metadata first
         metadata = self.storage_client.head_object(
             namespace_name=namespace,
@@ -25,7 +30,7 @@ class filemanager:
             object_name=object_name
         )
         if metadata.status != 200:
-            print("ERROR! Status:", metadata.status)
+            print("ERROR! Status:", metadata.status, file=print_location)
             return "" #file isn't created yet so it's fine
         osize = int(metadata.headers["content-length"])
         #after getting stuff, open a file and start writing
@@ -45,14 +50,59 @@ class filemanager:
                         break
                 if chunk.status != 200: #tried already, something is broken so exit
                     valid_file = False
-                    print("ERROR! Status:", chunk.status)
+                    print("ERROR! Status:", chunk.status, file=print_location)
                     break
                 f.write(chunk.content)
         #if parts could not be reached and file is incomplete, delete the file and return empty string
         if not valid_file:
-            print("File at", local_filename, "could not be fully downloaded, cleaning up.")
+            print("File at", local_filename, "could not be fully downloaded, cleaning up.", file=print_location)
             if os.path.exists(local_filename):
                 os.remove(local_filename)
             return ""
-        print("SUCCESS!")
+        print("SUCCESS!", file=print_location)
         return local_filename #if success, return filename (otherwise would be empty to signal caller something went wrong)
+
+    def putFile(self, namespace, bucket_name, filename, object_name="", attempts=10, tier="", replace_existing=True) -> bool: #standard PUT operation, up to 50 GiB (but use for small files only)
+        if len(object_name) == 0:
+            object_name = filename
+        print("Attempting to upload file named", filename, "to server as", object_name, file=print_location)
+        #check if object exists
+        metadata = self.storage_client.head_object(
+            namespace_name=namespace,
+            bucket_name=bucket_name,
+            object_name=object_name
+        )
+        if metadata.status == 200: #object exists (we may need to overwrite)
+            print("Object exists with size", metadata.headers["content-length"], file=print_location)
+            if not replace_existing:
+                return False
+        spinner = Halo(text='Uploading', spinner='dots')
+        spinner.start()
+        with open(os.path.join(self.working_dir, filename), 'rb') as f:
+            fcontent = f.read()
+            for i in range(attempts):
+                response = None
+                if len(tier) != 0:
+                    response = self.storage_client.put_object(
+                        namespace_name=namespace,
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        storage_tier=tier,
+                        put_object_body=fcontent
+                    )
+                else:
+                    response = self.storage_client.put_object(
+                        namespace_name=namespace,
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        put_object_body=fcontent
+                    )
+                if response.status == 200:
+                    spinner.stop()
+                    print("SUCCESS!", file=print_location)
+                    return True
+        spinner.stop()
+        print("FAILURE!", file=print_location)
+        return False
+
+    def multiPutFile(self, namespace, bucket_name, filename, object_name="", chunk_size=8192, attempts=10, tier="", replace_existing=True):
