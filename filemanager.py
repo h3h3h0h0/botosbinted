@@ -1,4 +1,7 @@
 import sys
+from os.path import getsize
+
+import oci
 from halo import Halo
 from oci.config import from_file
 from oci.signer import Signer
@@ -106,3 +109,87 @@ class filemanager:
         return False
 
     def multiPutFile(self, namespace, bucket_name, filename, object_name="", chunk_size=8192, attempts=10, tier="", replace_existing=True):
+        if len(object_name) == 0:
+            object_name = filename
+        # check if object exists
+        metadata = self.storage_client.head_object(
+            namespace_name=namespace,
+            bucket_name=bucket_name,
+            object_name=object_name
+        )
+        if metadata.status == 200:  # object exists (we may need to overwrite)
+            print("Object exists with size", metadata.headers["content-length"], file=print_location)
+            if not replace_existing:
+                return False
+        #create upload
+        mpu_details = oci.object_storage.models.CreateMultipartUploadDetails(
+            object=object_name)
+        if len(tier) != 0:
+            mpu_details.storage_tier = tier
+        print("Initializing multipart upload.", file=print_location)
+        create_response = self.storage_client.create_multipart_upload(
+            namespace_name=namespace,
+            bucket_name=bucket_name,
+            create_multipart_upload_details=mpu_details
+        )
+        if create_response.status != 200:
+            print("Could not initialize multipart upload. Status:", create_response.status, file=print_location)
+            return False
+        up_id = create_response.data["uploadId"]
+        #make parts
+        fsize = getsize(os.path.join(self.working_dir, filename))
+        wchunks = fsize//chunk_size
+        rchunk = fsize%chunk_size
+        fqueue = []
+        for i in range(wchunks):
+            fqueue.append((i*chunk_size, i+1))
+        if rchunk:
+            fqueue.append((wchunks*chunk_size, wchunks+1))
+        fin_size = len(fqueue)
+        print("Upload will consist of", fin_size, "parts.", file=print_location)
+        tattempts = attempts*fin_size #attempts is per-chunk
+        commits = []
+        #attempt to upload all chunks
+        with open(os.path.join(self.working_dir, filename), 'rb') as f:
+            with tqdm(total=fin_size, desc="UPLOADING!") as tq:
+                while len(fqueue) and tattempts:
+                    cur = fqueue.pop(0)
+                    f.seek(cur[0])
+                    cchunk = f.read(chunk_size)
+                    up_num = cur[1]
+                    upload_part_response = self.storage_client.upload_part(
+                        namespace_name=namespace,
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        upload_id=up_id,
+                        upload_part_num=up_num,
+                        upload_part_body=cchunk
+                    )
+                    if upload_part_response.status != 200:
+                        fqueue.append(cur)
+                    else:
+                        commits.append(oci.object_storage.models.CommitMultipartUploadPartDetails(
+                            part_num=up_num,
+                            etag=upload_part_response.data["ETag"])
+                        )
+                        tq.update(1)
+                    tattempts -= 1
+        if len(fqueue):
+            print("FAILURE!", len(fqueue), "parts could not be uploaded,", attempts*fin_size, "attempts used.", file=print_location)
+            return False
+        #attempt to commit
+        for i in range(attempts):
+            commit_response = self.storage_client.commit_multipart_upload(
+                namespace_name=namespace,
+                bucket_name=bucket_name,
+                object_name=object_name,
+                upload_id=up_id,
+                commit_multipart_upload_details=oci.object_storage.models.CommitMultipartUploadDetails(
+                    parts_to_commit=commits
+                )
+            )
+            if commit_response.status == 200:
+                print("SUCCESS!", file=print_location)
+                return True
+        print("Could not commit upload!", file=print_location)
+        return False
