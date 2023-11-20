@@ -68,8 +68,8 @@ class serverconnection:
         #if parts could not be reached and file is incomplete, delete the file and return empty string
         if not valid_file:
             print("File at", local_filename, "could not be fully downloaded, cleaning up.", file=self.print_location)
-            if os.path.exists(local_filename):
-                os.remove(local_filename)
+            if os.path.exists(os.path.join(self.working_dir, local_filename)):
+                os.remove(os.path.join(self.working_dir, local_filename))
             return ""
         print("SUCCESS!", file=self.print_location)
         return local_filename #if success, return filename (otherwise would be empty to signal caller something went wrong)
