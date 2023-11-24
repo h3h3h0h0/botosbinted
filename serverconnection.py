@@ -30,6 +30,16 @@ class serverconnection:
             self.print_location.close()
         self.print_location = sys.stdout
 
+    def exists(self, namespace, bucket_name, filename, attempts=10):
+        for i in range(attempts):
+            response = self.storage_client.head_object(
+                namespace_name=namespace,
+                bucket_name=bucket_name,
+                object_name=filename
+            )
+            if response.status == 200:
+                return True
+        return False
     def getFile(self, namespace, bucket_name, object_name, filename="", chunk_size=8192, attempts=10) -> str:
         local_filename = object_name
         if len(filename) != 0:
