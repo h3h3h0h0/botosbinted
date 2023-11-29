@@ -15,7 +15,7 @@ class filemanager:
                 "incloud" : 0, #number of files in cloud
                 "diskspace" : 0, #space occupied on disk
                 "cloudspace" : 0, #space occupied in cloud
-                "files" : [] #files (indexed by full path)
+                "files" : {} #files (indexed by full path)
             }
             with open(filelist, "w") as f:
                 json.dump(header, f, indent=5)
@@ -113,4 +113,20 @@ class filemanager:
         if not self.server.exists(ns, bk, filename):
             print("File does not exist on server!", file=self.print_location)
             return None
-        return self.server.getFile(ns, bk, filename, filename, chunk_size, attempts)
+        return self.server.getFile(ns, bk, filename, os.path.join(self.working_dir, filename), chunk_size, attempts)
+
+    def upload(self, filename, overwrite=False, chunk_size=8192, attempts=10, tier=""):
+        if not self.exists(filename):
+            print("File not tracked!", file=self.print_location)
+            return None
+        if not os.path.isfile(os.path.join(self.server.working_dir, filename)):
+            print("No file to upload!", file=self.print_location)
+            return None
+        clist = self.readList()
+        ns = clist["files"][os.path.join(self.working_dir, filename)]["namespace"]
+        bk = clist["files"][os.path.join(self.working_dir, filename)]["bucket"]
+        mp = clist["files"][os.path.join(self.working_dir, filename)]["multipart"]
+        if mp:
+            return self.server.multiPutFile(ns, bk, filename, os.path.join(self.working_dir, filename), chunk_size, attempts, tier, overwrite)
+        else:
+            return self.server.putFile(ns, bk, filename, os.path.join(self.working_dir, filename), attempts, tier, overwrite)
